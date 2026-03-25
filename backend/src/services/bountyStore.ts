@@ -1,5 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  sendNotification,
+  type NotificationEventType,
+  type NotificationRecipient,
+} from "./notificationService";
 
 export type BountyStatus =
   | "open"
@@ -173,6 +178,24 @@ export function createBounty(input: CreateBountyInput): BountyRecord {
   };
 
   writeStore([bounty, ...records]);
+
+  // Trigger notification on create
+  const recipients: NotificationRecipient[] = [
+    { role: 'maintainer', address: input.maintainer },
+  ];
+  
+  // Non-blocking: notifications fire-and-forget
+  sendNotification(recipients, 'bounty_created', {
+    bountyId: bounty.id,
+    repo: bounty.repo,
+    issueNumber: bounty.issueNumber,
+    title: bounty.title,
+    status: bounty.status,
+    maintainer: input.maintainer,
+    amount: bounty.amount,
+    tokenSymbol: bounty.tokenSymbol,
+  }).catch(err => console.warn('[createBounty] Notification failed (non-blocking):', err));
+
   return bounty;
 }
 
@@ -190,6 +213,25 @@ export function reserveBounty(id: string, contributor: string): BountyRecord {
     status: "reserved",
     reservedAt: nowInSeconds(),
   };
+
+  // Trigger notification on reserve
+  const recipients: NotificationRecipient[] = [
+    { role: 'maintainer', address: bounty.maintainer },
+    { role: 'contributor', address: contributor },
+  ];
+  
+  // Non-blocking: notifications fire-and-forget
+  sendNotification(recipients, 'bounty_reserved', {
+    bountyId: updated.id,
+    repo: updated.repo,
+    issueNumber: updated.issueNumber,
+    title: updated.title,
+    status: updated.status,
+    maintainer: bounty.maintainer,
+    contributor,
+    amount: updated.amount,
+    tokenSymbol: updated.tokenSymbol,
+  }).catch(err => console.warn('[reserveBounty] Notification failed (non-blocking):', err));
 
   return persistUpdated(records, updated);
 }
@@ -218,6 +260,25 @@ export function submitBounty(
     notes,
   };
 
+  // Trigger notification on submit
+  const recipients: NotificationRecipient[] = [
+    { role: 'maintainer', address: bounty.maintainer },
+    { role: 'contributor', address: contributor },
+  ];
+  
+  // Non-blocking: notifications fire-and-forget
+  sendNotification(recipients, 'bounty_submitted', {
+    bountyId: updated.id,
+    repo: updated.repo,
+    issueNumber: updated.issueNumber,
+    title: updated.title,
+    status: updated.status,
+    maintainer: bounty.maintainer,
+    contributor,
+    amount: updated.amount,
+    tokenSymbol: updated.tokenSymbol,
+  }, { submissionUrl, notes }).catch(err => console.warn('[submitBounty] Notification failed (non-blocking):', err));
+
   return persistUpdated(records, updated);
 }
 
@@ -237,6 +298,25 @@ export function releaseBounty(id: string, maintainer: string): BountyRecord {
     status: "released",
     releasedAt: nowInSeconds(),
   };
+
+  // Trigger notification on release
+  const recipients: NotificationRecipient[] = [
+    { role: 'maintainer', address: maintainer },
+    { role: 'contributor', address: bounty.contributor || 'unknown' },
+  ];
+  
+  // Non-blocking: notifications fire-and-forget
+  sendNotification(recipients, 'bounty_released', {
+    bountyId: updated.id,
+    repo: updated.repo,
+    issueNumber: updated.issueNumber,
+    title: updated.title,
+    status: updated.status,
+    maintainer,
+    contributor: bounty.contributor,
+    amount: updated.amount,
+    tokenSymbol: updated.tokenSymbol,
+  }).catch(err => console.warn('[releaseBounty] Notification failed (non-blocking):', err));
 
   return persistUpdated(records, updated);
 }
@@ -260,6 +340,25 @@ export function refundBounty(id: string, maintainer: string): BountyRecord {
     status: "refunded",
     refundedAt: nowInSeconds(),
   };
+
+  // Trigger notification on refund
+  const recipients: NotificationRecipient[] = [
+    { role: 'maintainer', address: maintainer },
+    { role: 'contributor', address: bounty.contributor || 'unknown' },
+  ];
+  
+  // Non-blocking: notifications fire-and-forget
+  sendNotification(recipients, 'bounty_refunded', {
+    bountyId: updated.id,
+    repo: updated.repo,
+    issueNumber: updated.issueNumber,
+    title: updated.title,
+    status: updated.status,
+    maintainer,
+    contributor: bounty.contributor,
+    amount: updated.amount,
+    tokenSymbol: updated.tokenSymbol,
+  }).catch(err => console.warn('[refundBounty] Notification failed (non-blocking):', err));
 
   return persistUpdated(records, updated);
 }
