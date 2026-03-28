@@ -17,6 +17,7 @@ import {
   submitBountySchema,
   zodErrorMessage,
 } from "./validation/schemas";
+import { requestContextMiddleware } from "./middleware/requestContext";
 import { limiter } from "./utils";
 import {
   captureRawBody,
@@ -25,11 +26,14 @@ import {
 
 export const app = express();
 
-app.use(cors());
-app.use(express.json({ verify: captureRawBody }));
+
 
 function parseId(raw: string | string[] | undefined): string {
   return bountyIdSchema.parse(Array.isArray(raw) ? raw[0] : raw);
+}
+
+function jsonError(res: Response, req: Request, statusCode: number, message: string) {
+  res.status(statusCode).json({ error: message, requestId: req.requestId });
 }
 
 function escapeCsv(value: unknown): string {
@@ -41,9 +45,9 @@ function escapeCsv(value: unknown): string {
   return raw;
 }
 
-function sendError(res: Response, error: unknown, statusCode = 400) {
+function sendError(res: Response, req: Request, error: unknown, statusCode = 400) {
   const message = error instanceof Error ? error.message : "Unexpected error";
-  res.status(statusCode).json({ error: message });
+  jsonError(res, req, statusCode, message);
 }
 
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -82,7 +86,7 @@ app.get("/api/bounties/released/export.csv", (req: Request, res: Response) => {
     if (typeof issueNumber === "string" && issueNumber.trim()) {
       const parsed = Number(issueNumber);
       if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
-        res.status(400).json({ error: "issueNumber must be a positive integer." });
+        jsonError(res, req, 400, "issueNumber must be a positive integer.");
         return;
       }
       released = released.filter((bounty) => bounty.issueNumber === parsed);
@@ -111,14 +115,14 @@ app.get("/api/bounties/released/export.csv", (req: Request, res: Response) => {
     res.setHeader("Content-Disposition", `attachment; filename="released-payouts-${timestamp}.csv"`);
     res.status(200).send(`${csv}\n`);
   } catch (error) {
-    sendError(res, error);
+    sendError(res, req, error);
   }
 });
 
 app.post("/api/bounties", limiter, (req: Request, res: Response) => {
   const parsed = createBountySchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: zodErrorMessage(parsed.error) });
+    jsonError(res, req, 400, zodErrorMessage(parsed.error));
     return;
   }
 
@@ -126,14 +130,14 @@ app.post("/api/bounties", limiter, (req: Request, res: Response) => {
     const bounty = createBounty(parsed.data);
     res.status(201).json({ data: bounty });
   } catch (error) {
-    sendError(res, error);
+    sendError(res, req, error);
   }
 });
 
 app.post("/api/bounties/:id/reserve", limiter, (req: Request, res: Response) => {
   const parsedBody = reserveBountySchema.safeParse(req.body);
   if (!parsedBody.success) {
-    res.status(400).json({ error: zodErrorMessage(parsedBody.error) });
+    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
     return;
   }
 
@@ -141,14 +145,14 @@ app.post("/api/bounties/:id/reserve", limiter, (req: Request, res: Response) => 
     const bounty = reserveBounty(parseId(req.params.id), parsedBody.data.contributor);
     res.json({ data: bounty });
   } catch (error) {
-    sendError(res, error);
+    sendError(res, req, error);
   }
 });
 
 app.post("/api/bounties/:id/submit", limiter, (req: Request, res: Response) => {
   const parsedBody = submitBountySchema.safeParse(req.body);
   if (!parsedBody.success) {
-    res.status(400).json({ error: zodErrorMessage(parsedBody.error) });
+    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
     return;
   }
 
@@ -161,14 +165,14 @@ app.post("/api/bounties/:id/submit", limiter, (req: Request, res: Response) => {
     );
     res.json({ data: bounty });
   } catch (error) {
-    sendError(res, error);
+    sendError(res, req, error);
   }
 });
 
 app.post("/api/bounties/:id/release", limiter, (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
-    res.status(400).json({ error: zodErrorMessage(parsedBody.error) });
+    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
     return;
   }
 
@@ -180,14 +184,14 @@ app.post("/api/bounties/:id/release", limiter, (req: Request, res: Response) => 
     );
     res.json({ data: bounty });
   } catch (error) {
-    sendError(res, error);
+    sendError(res, req, error);
   }
 });
 
 app.post("/api/bounties/:id/refund", limiter, (req: Request, res: Response) => {
   const parsedBody = maintainerActionSchema.safeParse(req.body);
   if (!parsedBody.success) {
-    res.status(400).json({ error: zodErrorMessage(parsedBody.error) });
+    jsonError(res, req, 400, zodErrorMessage(parsedBody.error));
     return;
   }
 
@@ -199,7 +203,7 @@ app.post("/api/bounties/:id/refund", limiter, (req: Request, res: Response) => {
     );
     res.json({ data: bounty });
   } catch (error) {
-    sendError(res, error);
+    sendError(res, req, error);
   }
 });
 

@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import {
-
-} from "./notificationService";
+import { sendNotification, type NotificationRecipient } from "./notificationService";
 
 export type BountyStatus =
   | "open"
@@ -221,7 +219,7 @@ export function reserveBounty(id: string, contributor: string): BountyRecord {
     reservedAt: nowInSeconds(),
   };
 
-
+  return persistUpdated(records, updated);
 }
 
 export function submitBounty(
@@ -248,7 +246,7 @@ export function submitBounty(
     notes,
   };
 
-
+  return persistUpdated(records, updated);
 }
 
 export function releaseBounty(id: string, maintainer: string, transactionHash?: string): BountyRecord {
@@ -269,7 +267,7 @@ export function releaseBounty(id: string, maintainer: string, transactionHash?: 
     releasedTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.releasedTxHash,
   };
 
-
+  return persistUpdated(records, updated);
 }
 
 export function refundBounty(id: string, maintainer: string, transactionHash?: string): BountyRecord {
@@ -293,6 +291,6 @@ export function refundBounty(id: string, maintainer: string, transactionHash?: s
     refundedTxHash: transactionHash?.trim() ? transactionHash.trim() : bounty.refundedTxHash,
   };
 
-
+  return persistUpdated(records, updated);
 }
 
