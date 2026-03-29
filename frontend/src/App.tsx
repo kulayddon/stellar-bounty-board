@@ -20,12 +20,18 @@ import {
   reserveBounty,
   submitBounty,
 } from "./api";
+import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
+import RecommendedBounties from "./RecommendedBounties";
+import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary } from "./constants";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics } from "./utils";
+import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 import type { Bounty, BountyStatus, CreateBountyPayload, OpenIssue } from "./types";
 import BountyDetailPage from "./BountyDetailPage";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
+import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
@@ -61,7 +67,7 @@ function shortAddress(value: string): string {
 function validateStellarPublicKey(input: string): string | null {
   const value = input.trim();
   if (!value) return "Address is required.";
-  if (!STELLAR_PUBLIC_KEY_REGEX.test(value)) return STELLAR_PUBLIC_KEY_HINT;
+  if (!/^G[A-Z0-9]{55}$/.test(value)) return "Enter a Stellar public key (starts with 'G', 56 characters)";
   return null;
 }
 
@@ -155,15 +161,12 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pathname, setPathname] = useState(() => window.location.pathname);
-
+n
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [statusFilter, setStatusFilter] = useState<"all" | BountyStatus>(initialFilters.statusFilter);
   const [minReward, setMinReward] = useState(initialFilters.minReward);
   const [maxReward, setMaxReward] = useState(initialFilters.maxReward);
 
-  const [profileContributor, setProfileContributor] = useState("");
-  const [profileStatus, setProfileStatus] = useState<(BountyStatus | "all")>("all");
 
 
   async function refresh(): Promise<void> {
@@ -249,140 +252,23 @@ function App() {
   }
 
   const metrics = useMemo(() => {
-    const activePool = bounties.filter((bounty) =>
+    const activePool = bounties.filter((bounty: Bounty) =>
       ["open", "reserved", "submitted"].includes(bounty.status),
     );
     return {
       liveBounties: activePool.length,
-      fundedVolume: bounties.reduce((sum, bounty) => sum + bounty.amount, 0),
-      openIssues: bounties.filter((bounty) => bounty.status === "open").length,
-      shippedRewards: bounties.filter((bounty) => bounty.status === "released").length,
+      fundedVolume: bounties.reduce((sum: number, bounty: Bounty) => sum + bounty.amount, 0),
+      openIssues: bounties.filter((bounty: Bounty) => bounty.status === "open").length,
+      shippedRewards: bounties.filter((bounty: Bounty) => bounty.status === "released").length,
     };
   }, [bounties]);
 
-  const rewardBounds = useMemo(() => {
-    if (bounties.length === 0) return { lowest: 0, highest: 0 };
-    const amounts = bounties.map((bounty) => bounty.amount);
-    return {
-      lowest: Math.min(...amounts),
-      highest: Math.max(...amounts),
-    };
-  }, [bounties]);
 
-  const statusOptions = useMemo(() => {
-    return [
-      { value: "all" as const, label: "All" },
-      { value: "open" as const, label: statusCopy.open.label },
-      { value: "reserved" as const, label: statusCopy.reserved.label },
-      { value: "submitted" as const, label: statusCopy.submitted.label },
-      { value: "released" as const, label: statusCopy.released.label },
-      { value: "refunded" as const, label: statusCopy.refunded.label },
-      { value: "expired" as const, label: statusCopy.expired.label },
-    ];
-  }, []);
-
-  const statusGlossary = useMemo(() => {
-    return (Object.keys(statusCopy) as BountyStatus[]).map((status) => ({
-      status,
-      label: statusCopy[status].label,
-      description: statusCopy[status].description,
-    }));
-  }, []);
-
-  const filteredBounties = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const min = minReward.trim() ? Number(minReward) : null;
-    const max = maxReward.trim() ? Number(maxReward) : null;
-
-    return bounties.filter((bounty) => {
-      if (statusFilter !== "all" && bounty.status !== statusFilter) return false;
-      if (min !== null && Number.isFinite(min) && bounty.amount < min) return false;
-      if (max !== null && Number.isFinite(max) && bounty.amount > max) return false;
-      if (!query) return true;
-
-      const haystack = [
-        bounty.repo,
-        String(bounty.issueNumber),
-        bounty.title,
-        bounty.summary,
-        bounty.status,
-        ...bounty.labels,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [bounties, maxReward, minReward, searchQuery, statusFilter]);
-
-  const activeRewardLabel = useMemo(() => {
-    const min = minReward.trim() ? minReward.trim() : "0";
-    const max = maxReward.trim() ? maxReward.trim() : "No limit";
-    return `${min} - ${max}`;
-  }, [maxReward, minReward]);
-
-  function clearFilters() {
     setSearchQuery("");
     setStatusFilter("all");
     setMinReward("");
     setMaxReward("");
-  }
 
-  async function handleExportReleasedPayouts(): Promise<void> {
-    try {
-      setExporting(true);
-      setError(null);
-      const result = await exportReleasedPayoutsCsv();
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to export payouts.");
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  const contributorMetrics = useMemo(() => {
-    const contributor = profileContributor.trim();
-    if (!contributor) {
-      return {
-        contributor: null as string | null,
-        filtered: [] as Bounty[],
-        countsByStatus: new Map<BountyStatus, number>(),
-        releasedTotalsByAsset: new Map<string, number>(),
-      };
-    }
-
-    const owned = bounties.filter((bounty) => bounty.contributor === contributor);
-    const filtered = owned.filter((bounty) => (profileStatus === "all" ? true : bounty.status === profileStatus));
-
-    const countsByStatus = new Map<BountyStatus, number>();
-    for (const bounty of owned) {
-      countsByStatus.set(bounty.status, (countsByStatus.get(bounty.status) ?? 0) + 1);
-    }
-
-    const releasedTotalsByAsset = new Map<string, number>();
-    for (const bounty of owned) {
-      if (bounty.status !== "released") continue;
-      releasedTotalsByAsset.set(
-        bounty.tokenSymbol,
-        (releasedTotalsByAsset.get(bounty.tokenSymbol) ?? 0) + bounty.amount,
-      );
-    }
-
-    return {
-      contributor,
-      filtered,
-      countsByStatus,
-      releasedTotalsByAsset,
-    };
-  }, [bounties, profileContributor, profileStatus]);
 
 
 
@@ -551,6 +437,7 @@ function App() {
     }
   }
 
+
   return (
     <div className="page-shell">
       <div className="glow glow-left" />
@@ -619,6 +506,13 @@ function App() {
       </section>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {profileContributor && (
+        <RecommendedBounties 
+          recommendations={recommendations} 
+          loading={loading} 
+        />
+      )}
 
       <main className="content-grid">
         <section className="panel form-panel" id="create">
@@ -693,7 +587,7 @@ function App() {
                   autoComplete="off"
                   aria-invalid={Boolean(form.maintainer.trim() && validateStellarPublicKey(form.maintainer))}
                 />
-                <small className="field-hint">{STELLAR_PUBLIC_KEY_HINT}</small>
+                <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
                 {form.maintainer.trim() && validateStellarPublicKey(form.maintainer) && (
                   <small className="field-error">{validateStellarPublicKey(form.maintainer)}</small>
                 )}
@@ -1019,7 +913,7 @@ function App() {
               autoComplete="off"
               aria-invalid={Boolean(profileContributor.trim() && validateStellarPublicKey(profileContributor))}
             />
-            <small className="field-hint">{STELLAR_PUBLIC_KEY_HINT}</small>
+            <small className="field-hint">Enter a Stellar public key (starts with 'G', 56 characters)</small>
             {profileContributor.trim() && validateStellarPublicKey(profileContributor) && (
               <small className="field-error">{validateStellarPublicKey(profileContributor)}</small>
             )}

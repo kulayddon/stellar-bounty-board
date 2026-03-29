@@ -975,28 +975,6 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .bounty-detail__hero {
-    grid-template-columns: 1fr;
-    justify-items: start;
-  }
-
-  .meta-grid--detail {
-    grid-template-columns: 1fr;
-  }
-
-  .action-row--detail {
-    width: 100%;
-  }
-
-  .action-row--detail button {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .repo-avatar {
-    width: 52px;
-    height: 52px;
-  }
 
   .hero h1 {
     max-width: none;
